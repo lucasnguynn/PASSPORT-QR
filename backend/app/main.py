@@ -2,15 +2,22 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi import _rate_limit_exceeded_handler
 
 from app.modules.passport.router import router as passport_router
 from app.modules.qr.router import router as qr_router
+from app.modules.qr.router import limiter
 from app.modules.social.router import router as social_router
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     application = FastAPI(title="Digital Product Passport API", version="0.1.0")
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+    application.add_middleware(SlowAPIMiddleware)
     application.include_router(passport_router)
     application.include_router(social_router)
     application.include_router(qr_router)
