@@ -1,0 +1,4 @@
+# One normalized prohibited term per line
+fuck
+shit
+scam

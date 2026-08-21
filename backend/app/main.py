@@ -12,6 +12,7 @@ from app.modules.passport.router import admin_router as passport_admin_router
 from app.modules.passport.router import router as passport_router
 from app.modules.qr.router import router as qr_router
 from app.modules.qr.router import limiter
+from app.modules.social.router import admin_router as social_admin_router
 from app.modules.social.router import router as social_router
 
 
@@ -24,6 +25,7 @@ def create_app() -> FastAPI:
     application.include_router(passport_router)
     application.include_router(passport_admin_router)
     application.include_router(social_router)
+    application.include_router(social_admin_router)
     application.include_router(qr_router)
 
     @application.middleware("http")
