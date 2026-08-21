@@ -1,11 +1,14 @@
 from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
 
+from app.modules.passport.router import admin_router as passport_admin_router
 from app.modules.passport.router import router as passport_router
 from app.modules.qr.router import router as qr_router
 from app.modules.qr.router import limiter
@@ -19,6 +22,7 @@ def create_app() -> FastAPI:
     application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
     application.add_middleware(SlowAPIMiddleware)
     application.include_router(passport_router)
+    application.include_router(passport_admin_router)
     application.include_router(social_router)
     application.include_router(qr_router)
 
@@ -38,6 +42,38 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         """Report process health for container orchestration."""
         return {"status": "healthy"}
+
+    @application.exception_handler(HTTPException)
+    async def http_problem(request: Request, exc: HTTPException) -> JSONResponse:
+        """Represent intentional HTTP failures as RFC 7807 Problem Details."""
+        return JSONResponse(
+            status_code=exc.status_code,
+            media_type="application/problem+json",
+            headers=exc.headers,
+            content={
+                "type": "about:blank",
+                "title": str(exc.detail),
+                "status": exc.status_code,
+                "detail": str(exc.detail),
+                "instance": request.url.path,
+            },
+        )
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_problem(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Represent invalid API input as RFC 7807 Problem Details."""
+        return JSONResponse(
+            status_code=422,
+            media_type="application/problem+json",
+            content={
+                "type": "https://dpp.local/problems/validation-error",
+                "title": "Request validation failed",
+                "status": 422,
+                "detail": "One or more request values are invalid.",
+                "instance": request.url.path,
+                "errors": jsonable_encoder(exc.errors()),
+            },
+        )
 
     @application.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception) -> JSONResponse:

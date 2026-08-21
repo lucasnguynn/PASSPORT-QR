@@ -152,7 +152,7 @@ async def verify_scan(
     if product is None or product.status != "active":
         raise NotFoundError(str(record.product_id))
 
-    data = PassportData(product_id=product.id, name=product.name, description=product.description, verified_at=datetime.now(UTC))
+    data = PassportData(product_id=product.id, name=product.name, verified_at=datetime.now(UTC))
     await redis.set(cache_key, data.model_dump_json(), ex=300)  # type: ignore[attr-defined]
     await _record_scan(db, token_hash, device_fp, client_ip, "valid", product.id)
     return data
