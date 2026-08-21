@@ -13,7 +13,15 @@ class Settings(BaseSettings):
     qr_uri_scheme: str = "dppassport"
     ecdsa_private_key_b64: str
     ecdsa_public_key_b64: str
-    active_key_id: str = "key_001"
+    active_key_id: str = "key1"
+    keycloak_public_key: str = ""
+    keycloak_issuer: str = ""
+    keycloak_audience: str = "account"
+    minio_endpoint: str = "minio:9000"
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_secure: bool = False
+    minio_public_url: str = "http://localhost:9000"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

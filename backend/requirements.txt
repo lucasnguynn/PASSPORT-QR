@@ -7,6 +7,7 @@ pydantic-settings==2.6.*
 cryptography==43.*
 qrcode[pil]==8.*
 pillow==11.*
+minio==7.2.*
 celery[redis]==5.4.*
 slowapi==0.1.*
 python-jose[cryptography]==3.3.*
