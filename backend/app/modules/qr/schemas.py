@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class VerifyQRRequest(BaseModel):
-    token_uri: str = Field(min_length=20, max_length=512)
-    device_fingerprint: str = Field(min_length=8, max_length=255)
+    token_uri: str = Field(min_length=1, max_length=512)
+    device_fingerprint: str = Field(min_length=1, max_length=255)
 
 
 class PassportData(BaseModel):

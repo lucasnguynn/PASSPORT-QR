@@ -6,18 +6,17 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from redis.asyncio import Redis
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.database import get_session
+from app.core.metrics import qr_scan_total
+from app.core.rate_limit import limiter
 from app.core.redis_client import get_redis
+from app.core.security import require_admin
 from app.modules.qr.crypto import ChecksumError, InvalidSignatureError, SchemeError
+from app.modules.qr.fraud_detector import record_signature_failure
 from app.modules.qr.models import QRRecord, QRScanLog
 from app.modules.qr.schemas import (
     PaginatedScanLogs,
@@ -39,34 +38,6 @@ from app.modules.qr.service import (
 )
 
 router = APIRouter(tags=["qr"])
-limiter = Limiter(key_func=get_remote_address)
-bearer = HTTPBearer(auto_error=False)
-
-
-async def require_admin(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
-) -> dict[str, object]:
-    """Validate a Keycloak access token and require the realm admin role."""
-    settings = get_settings()
-    if credentials is None or not settings.keycloak_public_key or not settings.keycloak_issuer:
-        raise HTTPException(status_code=401, detail="Administrator authentication required")
-    public_key = settings.keycloak_public_key.replace("\\n", "\n")
-    try:
-        claims = jwt.decode(
-            credentials.credentials,
-            public_key,
-            algorithms=["RS256"],
-            audience=settings.keycloak_audience,
-            issuer=settings.keycloak_issuer,
-        )
-        roles = claims.get("realm_access", {}).get("roles", [])
-        if "admin" not in roles:
-            raise HTTPException(status_code=403, detail="Administrator role required")
-        return claims
-    except JWTError as exc:
-        raise HTTPException(status_code=401, detail="Invalid access token") from exc
-
-
 @router.post("/api/qr/verify", response_model=PassportData)
 @limiter.limit("60/minute")
 async def verify_qr(
@@ -78,26 +49,34 @@ async def verify_qr(
     """Authenticate a public QR scan and return its Digital Product Passport."""
     client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
     try:
-        return await verify_scan(body.token_uri, body.device_fingerprint, client_ip, db, redis)
+        country = request.headers.get("CF-IPCountry") or request.headers.get("X-Country-Code")
+        return await verify_scan(body.token_uri, body.device_fingerprint, client_ip, db, redis, country)
     except SchemeError as exc:
+        qr_scan_total.labels(result="invalid").inc()
         return JSONResponse(status_code=400, content={"status": "invalid_scheme", "message": str(exc)})
     except ChecksumError as exc:
+        qr_scan_total.labels(result="invalid").inc()
         return JSONResponse(status_code=400, content={"status": "checksum_failed", "message": str(exc)})
     except InvalidSignatureError as exc:
+        await record_signature_failure(client_ip, db, redis)
+        qr_scan_total.labels(result="invalid").inc()
         return JSONResponse(status_code=400, content={"status": "invalid_signature", "message": str(exc)})
     except NotFoundError:
         return JSONResponse(status_code=404, content={"status": "not_found"})
     except RevokedError as exc:
+        qr_scan_total.labels(result="revoked").inc()
         return JSONResponse(status_code=410, content={"status": "revoked", "revoke_reason": exc.reason})
     except RateLimitError:
         return JSONResponse(status_code=429, content={"status": "rate_limited"})
 
 
 @router.post("/api/admin/qr/generate/{product_id}", response_model=QRGenerationResponse, status_code=201)
+@limiter.limit("500/minute")
 async def generate_qr(
+    request: Request,
     product_id: UUID,
     db: Annotated[AsyncSession, Depends(get_session)],
-    _admin: Annotated[dict[str, object], Depends(require_admin)],
+    _admin: Annotated[object, Depends(require_admin)],
 ) -> QRRecord:
     """Issue a signed QR credential for an active product (administrator only)."""
     try:
@@ -109,11 +88,13 @@ async def generate_qr(
 
 
 @router.post("/api/admin/qr/revoke/{product_id}", response_model=RevokeResponse)
+@limiter.limit("500/minute")
 async def revoke_qr(
+    request: Request,
     product_id: UUID,
     body: RevokeRequest,
     db: Annotated[AsyncSession, Depends(get_session)],
-    _admin: Annotated[dict[str, object], Depends(require_admin)],
+    _admin: Annotated[object, Depends(require_admin)],
 ) -> RevokeResponse:
     """Revoke a product's current credential and invalidate future scans."""
     record = await db.scalar(select(QRRecord).where(QRRecord.product_id == product_id, QRRecord.revoked_at.is_(None)))
@@ -126,9 +107,11 @@ async def revoke_qr(
 
 
 @router.get("/api/admin/qr/scan-logs", response_model=PaginatedScanLogs)
+@limiter.limit("500/minute")
 async def scan_logs(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_session)],
-    _admin: Annotated[dict[str, object], Depends(require_admin)],
+    _admin: Annotated[object, Depends(require_admin)],
     product_id: UUID | None = None,
     from_: Annotated[datetime | None, Query(alias="from")] = None,
     to: datetime | None = None,

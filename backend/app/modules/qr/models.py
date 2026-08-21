@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -41,3 +41,19 @@ class QRScanLog(Base):
     client_ip: Mapped[str] = mapped_column(String(45))
     result: Mapped[str] = mapped_column(String(32), index=True)
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FraudAlert(Base):
+    """A security signal requiring staff investigation."""
+
+    __tablename__ = "fraud_alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    qr_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("qr_records.id", ondelete="CASCADE"), index=True
+    )
+    alert_type: Mapped[str] = mapped_column(String(32), index=True)
+    details: Mapped[dict[str, object]] = mapped_column(JSONB)
+    client_ip: Mapped[str] = mapped_column(INET)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

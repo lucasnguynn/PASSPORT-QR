@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: DPP
+    folder: Digital Product Passport
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

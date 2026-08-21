@@ -1,0 +1,21 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {"type":"timeseries","title":"QR scan rate","targets":[{"expr":"sum by (result) (rate(qr_scan_total[5m]))","legendFormat":"{{result}}"}],"gridPos":{"h":8,"w":8,"x":0,"y":0}},
+    {"type":"timeseries","title":"Fraud alerts","targets":[{"expr":"sum by (alert_type) (increase(qr_fraud_alerts_total[1h]))","legendFormat":"{{alert_type}}"}],"gridPos":{"h":8,"w":8,"x":8,"y":0}},
+    {"type":"timeseries","title":"API error rate","targets":[{"expr":"sum(rate(http_requests_total{status=~\"4..|5..\"}[5m])) / sum(rate(http_requests_total[5m]))"}],"gridPos":{"h":8,"w":8,"x":16,"y":0}},
+    {"type":"timeseries","title":"Story and reaction rate","targets":[{"expr":"rate(story_created_total[5m])","legendFormat":"stories"},{"expr":"rate(reaction_total[5m])","legendFormat":"reactions"}],"gridPos":{"h":8,"w":12,"x":0,"y":8}},
+    {"type":"timeseries","title":"Feed latency p95","targets":[{"expr":"histogram_quantile(0.95, sum by (le) (rate(feed_latency_seconds_bucket[5m])))"}],"gridPos":{"h":8,"w":12,"x":12,"y":8}},
+    {"type":"timeseries","title":"Process CPU and memory","targets":[{"expr":"rate(process_cpu_seconds_total[5m])","legendFormat":"CPU"},{"expr":"process_resident_memory_bytes","legendFormat":"memory"}],"gridPos":{"h":8,"w":12,"x":0,"y":16}},
+    {"type":"timeseries","title":"Redis memory","targets":[{"expr":"redis_memory_used_bytes"}],"gridPos":{"h":8,"w":6,"x":12,"y":16}},
+    {"type":"timeseries","title":"DB connections","targets":[{"expr":"pg_stat_activity_count"}],"gridPos":{"h":8,"w":6,"x":18,"y":16}}
+  ],
+  "schemaVersion": 39,
+  "tags": ["dpp", "fastapi"],
+  "templating": {"list": []},
+  "time": {"from":"now-6h","to":"now"},
+  "title": "DPP Overview",
+  "uid": "dpp-overview",
+  "version": 1
+}
