@@ -1,0 +1,11 @@
+{env.DOMAIN} {
+  reverse_proxy /api/* app:8000
+  reverse_proxy /auth/* keycloak:8080
+  reverse_proxy /* frontend:3000
+  header {
+    Strict-Transport-Security "max-age=31536000"
+    X-Frame-Options "SAMEORIGIN"
+    X-Content-Type-Options "nosniff"
+    Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; camera 'self'"
+  }
+}
