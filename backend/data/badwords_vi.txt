@@ -1,0 +1,4 @@
+# Danh sách từ cấm (matching ignores diacritics)
+dit
+đụ
+lua dao
