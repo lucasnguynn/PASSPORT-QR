@@ -1,1 +1,5 @@
-export default function CommunityPage() { return <h1 className="text-2xl font-semibold">Community</h1>; }
+"use client";
+import { useState } from "react";
+import { FeedList } from "@/components/social/FeedList";
+const colors=[{name:"All",hex:"#c9a84c"},{name:"Diamond",hex:"#e5e7eb"},{name:"Ruby",hex:"#b91c1c"},{name:"Emerald",hex:"#15803d"},{name:"Sapphire",hex:"#1d4ed8"},{name:"Amethyst",hex:"#7e22ce"}];
+export default function CommunityPage(){const [color,setColor]=useState("All");return <main className="mx-auto min-h-screen max-w-3xl px-5 py-12"><p className="text-center uppercase tracking-[.3em] text-[#c9a84c]">The JewelPass Society</p><h1 className="font-display mb-9 text-center text-5xl">Community stories</h1><nav className="mb-8 flex gap-3 overflow-x-auto pb-3" aria-label="Filter by gem color">{colors.map(item=><button key={item.name} onClick={()=>setColor(item.name)} className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 ${color===item.name?"border-[#c9a84c]":"border-zinc-700"}`}><span className="size-3 rounded-full" style={{background:item.hex}}/>{item.name}</button>)}</nav><FeedList color={color==="All"?undefined:color}/></main>}
