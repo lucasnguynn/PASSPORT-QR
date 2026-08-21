@@ -16,9 +16,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.metrics import qr_scan_total
 from app.modules.passport.models import Product
 from app.modules.qr.crypto import QRCrypto
 from app.modules.qr.models import QRRecord, QRScanLog
+from app.modules.qr.fraud_detector import inspect_valid_scan
 from app.modules.qr.schemas import PassportData
 
 
@@ -123,7 +125,8 @@ async def _record_scan(
 
 
 async def verify_scan(
-    token_uri: str, device_fp: str, client_ip: str, db: AsyncSession, redis: object
+    token_uri: str, device_fp: str, client_ip: str, db: AsyncSession, redis: object,
+    country: str | None = None,
 ) -> PassportData:
     """Run rate limiting, cryptographic verification, persistence checks, caching, and audit logging."""
     rate_key = f"qr:rate:{device_fp}"
@@ -138,7 +141,11 @@ async def verify_scan(
     cached = await redis.get(cache_key)  # type: ignore[attr-defined]
     if cached:
         data = PassportData.model_validate_json(cached)
+        record = await db.scalar(select(QRRecord).where(QRRecord.token_hash == token_hash))
         await _record_scan(db, token_hash, device_fp, client_ip, "valid", data.product_id)
+        if record is not None:
+            await inspect_valid_scan(record, country, client_ip, db, redis)  # type: ignore[arg-type]
+        qr_scan_total.labels(result="valid").inc()
         return data
 
     settings = get_settings()
@@ -155,4 +162,6 @@ async def verify_scan(
     data = PassportData(product_id=product.id, name=product.name, verified_at=datetime.now(UTC))
     await redis.set(cache_key, data.model_dump_json(), ex=300)  # type: ignore[attr-defined]
     await _record_scan(db, token_hash, device_fp, client_ip, "valid", product.id)
+    await inspect_valid_scan(record, country, client_ip, db, redis)  # type: ignore[arg-type]
+    qr_scan_total.labels(result="valid").inc()
     return data

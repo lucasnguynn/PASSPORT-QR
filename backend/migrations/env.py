@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.database import Base
 from app.modules.passport import models as passport_models  # noqa: F401
 from app.modules.qr import models as qr_models  # noqa: F401
+from app.modules.social import models as social_models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)

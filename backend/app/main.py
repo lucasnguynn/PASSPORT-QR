@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -11,7 +12,9 @@ from slowapi import _rate_limit_exceeded_handler
 from app.modules.passport.router import admin_router as passport_admin_router
 from app.modules.passport.router import router as passport_router
 from app.modules.qr.router import router as qr_router
-from app.modules.qr.router import limiter
+from app.core.metrics import configure_metrics
+from app.core.rate_limit import limiter
+from app.core.redis_client import get_redis
 from app.modules.social.router import admin_router as social_admin_router
 from app.modules.social.router import router as social_router
 
@@ -27,6 +30,29 @@ def create_app() -> FastAPI:
     application.include_router(social_router)
     application.include_router(social_admin_router)
     application.include_router(qr_router)
+    configure_metrics(application)
+
+    @application.middleware("http")
+    async def fraud_blocklist(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Reject IPs temporarily blocked after repeated signature failures."""
+        client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+        redis = get_redis()
+        try:
+            blocked = await redis.exists(f"qr:blocklist:{client_ip}")
+        except RedisError:
+            blocked = False
+        finally:
+            await redis.aclose()
+        if blocked:
+            return JSONResponse(
+                status_code=403,
+                media_type="application/problem+json",
+                content={"type": "about:blank", "title": "IP temporarily blocked", "status": 403,
+                         "detail": "Too many invalid QR signatures.", "instance": request.url.path},
+            )
+        return await call_next(request)
 
     @application.middleware("http")
     async def security_headers(

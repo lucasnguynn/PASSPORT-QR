@@ -14,8 +14,9 @@ class Settings(BaseSettings):
     ecdsa_private_key_b64: str
     ecdsa_public_key_b64: str
     active_key_id: str = "key1"
-    keycloak_public_key: str = ""
-    keycloak_issuer: str = ""
+    keycloak_url: str = "http://keycloak:8080/auth"
+    keycloak_realm: str = "dpp"
+    keycloak_issuer: str = "http://keycloak:8080/auth/realms/dpp"
     keycloak_audience: str = "account"
     minio_endpoint: str = "minio:9000"
     minio_access_key: str = ""
