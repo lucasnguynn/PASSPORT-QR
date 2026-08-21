@@ -1,0 +1,11 @@
+services:
+  app:
+    restart: unless-stopped
+  worker:
+    restart: unless-stopped
+  beat:
+    restart: unless-stopped
+  frontend:
+    restart: unless-stopped
+  caddy:
+    restart: unless-stopped

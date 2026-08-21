@@ -1,0 +1,1 @@
+"""Social persistence models."""

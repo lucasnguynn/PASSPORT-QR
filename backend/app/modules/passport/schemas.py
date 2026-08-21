@@ -1,0 +1,1 @@
+"""Passport API schemas."""

@@ -1,0 +1,1 @@
+"""QR audit persistence models."""
