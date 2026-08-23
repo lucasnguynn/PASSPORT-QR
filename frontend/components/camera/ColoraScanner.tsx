@@ -115,7 +115,7 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecode
       streamRef.current = null;
     }
     if (videoRef.current) videoRef.current.srcObject = null;
-    // @ts-ignore: ZXing type definition is missing the reset method
+    // @ts-expect-error: ZXing type definition is missing the reset method
     readerRef.current?.reset();
     decodingRef.current = false;
   }, []);
