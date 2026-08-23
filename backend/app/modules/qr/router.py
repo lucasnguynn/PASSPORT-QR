@@ -21,10 +21,13 @@ from app.modules.qr.models import QRRecord, QRScanLog
 from app.modules.qr.schemas import (
     PaginatedScanLogs,
     PassportData,
+    ColoraQRGenerationRequest,
     QRGenerationResponse,
     RevokeRequest,
     RevokeResponse,
     ScanLogResponse,
+    ScanTelemetryRequest,
+    ScanTelemetryResponse,
     VerifyQRRequest,
 )
 from app.modules.qr.service import (
@@ -34,10 +37,62 @@ from app.modules.qr.service import (
     RateLimitError,
     RevokedError,
     create_product_qr,
+    log_client_scan,
+    QRService,
     verify_scan,
 )
 
 router = APIRouter(tags=["qr"])
+
+
+def _generation_response(record: QRRecord) -> QRGenerationResponse:
+    return QRGenerationResponse(
+        payload=f"https://colora.vn/secure#token={record.base64url_token}",
+        token_hash=record.token_hash,
+        product_id=record.product_id,
+        issued_at=record.issued_at,
+    )
+
+
+@router.post("/api/qr/generate", response_model=QRGenerationResponse, status_code=201)
+@limiter.limit("500/minute")
+async def generate_colora_qr(
+    request: Request,
+    body: ColoraQRGenerationRequest,
+    db: Annotated[AsyncSession, Depends(get_session)],
+    _admin: Annotated[object, Depends(require_admin)],
+) -> QRGenerationResponse:
+    """Generate and persist an eight-layer COLORA payload (administrator only)."""
+    try:
+        return _generation_response(
+            await QRService.generate_colora_qr(body.target_url, body.product_id, db)
+        )
+    except ProductNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Active product not found") from exc
+    except ProductAlreadyHasQRError as exc:
+        raise HTTPException(status_code=409, detail="Product already has an active QR") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/api/qr/log-scan", response_model=ScanTelemetryResponse, status_code=202)
+@limiter.limit("120/minute")
+async def log_scan(
+    request: Request,
+    body: ScanTelemetryRequest,
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> ScanTelemetryResponse:
+    """Accept best-effort public telemetry from a client-side verified scan."""
+    client_ip = request.headers.get("X-Real-IP") or (request.client.host if request.client else "unknown")
+    device_fp = body.device_fingerprint or str(body.device_info.get("userAgent", "unknown"))[:255]
+    await log_client_scan(
+        db, body.token_hash, device_fp, client_ip, body.device_info,
+        body.status, request.headers.get("user-agent"), body.failure_reason,
+    )
+    qr_scan_total.labels(result=body.status).inc()
+    return ScanTelemetryResponse()
+
+
 @router.post("/api/qr/verify", response_model=PassportData)
 @limiter.limit("60/minute")
 async def verify_qr(
@@ -77,10 +132,10 @@ async def generate_qr(
     product_id: UUID,
     db: Annotated[AsyncSession, Depends(get_session)],
     _admin: Annotated[object, Depends(require_admin)],
-) -> QRRecord:
+) -> QRGenerationResponse:
     """Issue a signed QR credential for an active product (administrator only)."""
     try:
-        return await create_product_qr(product_id, db)
+        return _generation_response(await create_product_qr(product_id, db))
     except ProductNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Active product not found") from exc
     except ProductAlreadyHasQRError as exc:

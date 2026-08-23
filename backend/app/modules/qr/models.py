@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, func
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,10 +17,13 @@ class QRRecord(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), index=True)
-    token: Mapped[str] = mapped_column(Text())
+    base64url_token: Mapped[str] = mapped_column(Text())
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    key_id: Mapped[str] = mapped_column(String(4))
-    qr_image_url: Mapped[str] = mapped_column(Text())
+    key_id: Mapped[int] = mapped_column(Integer)
+    aes_iv: Mapped[bytes] = mapped_column(LargeBinary(16))
+    target_url: Mapped[str] = mapped_column(Text())
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    qr_image_url: Mapped[str | None] = mapped_column(Text())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoke_reason: Mapped[str | None] = mapped_column(Text())
@@ -39,7 +42,10 @@ class QRScanLog(Base):
     token_hash: Mapped[str] = mapped_column(String(64), index=True)
     device_fingerprint: Mapped[str] = mapped_column(String(255))
     client_ip: Mapped[str] = mapped_column(String(45))
+    device_info: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    user_agent: Mapped[str | None] = mapped_column(Text())
     result: Mapped[str] = mapped_column(String(32), index=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(255))
     scanned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

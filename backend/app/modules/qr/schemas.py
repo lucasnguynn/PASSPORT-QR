@@ -20,9 +20,27 @@ class PassportData(BaseModel):
 
 class QRGenerationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    qr_image_url: str
-    token: str
+    payload: str
+    token_hash: str
     product_id: UUID
+    issued_at: datetime
+
+
+class ColoraQRGenerationRequest(BaseModel):
+    target_url: str = Field(min_length=8, max_length=2048)
+    product_id: UUID
+
+
+class ScanTelemetryRequest(BaseModel):
+    token_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    device_fingerprint: str | None = Field(default=None, max_length=255)
+    device_info: dict[str, object] = Field(default_factory=dict)
+    status: str = Field(default="success", pattern=r"^(success|failure)$")
+    failure_reason: str | None = Field(default=None, max_length=255)
+
+
+class ScanTelemetryResponse(BaseModel):
+    logged: bool = True
 
 
 class RevokeRequest(BaseModel):

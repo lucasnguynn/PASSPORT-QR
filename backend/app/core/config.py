@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     qr_uri_scheme: str = "dppassport"
     ecdsa_private_key_b64: str
     ecdsa_public_key_b64: str
-    active_key_id: str = "key1"
+    colora_aes_key_b64: str = ""
+    active_key_id: str = "1"
     keycloak_url: str = "http://keycloak:8080/auth"
     keycloak_realm: str = "dpp"
     keycloak_issuer: str = "http://keycloak:8080/auth/realms/dpp"
