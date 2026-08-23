@@ -217,7 +217,7 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, onDecoded, autoRe
         {(["left-5 top-5 border-l-2 border-t-2", "right-5 top-5 border-r-2 border-t-2", "bottom-5 left-5 border-b-2 border-l-2", "bottom-5 right-5 border-b-2 border-r-2"] as const).map((position) => (
           <span key={position} className={`absolute z-20 size-12 rounded-[0.9rem] border-[#082756] ${position}`} />
         ))}
-        {status === "scanning" && <span className="colora-laser absolute inset-x-7 top-7 z-10 h-px bg-cyan-100 shadow-[0_0_5px_1px_#fff,0_0_16px_4px_#1687b8]" />}
+        {status === "scanning" && <span className="colora-laser bg-colora-neon absolute inset-x-7 top-7 z-10 h-px shadow-[0_0_5px_1px_#D5FD50,0_0_16px_4px_#D5FD50]" />}
       </div>
 
       {(status === "requesting" || status === "verifying") && (
@@ -228,7 +228,7 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, onDecoded, autoRe
       {status === "success" && <div className="colora-flash pointer-events-none absolute inset-0 z-40 bg-white" />}
 
       <footer className="absolute inset-x-0 bottom-0 z-20 flex flex-col items-center px-8 pb-[max(2rem,env(safe-area-inset-bottom))] text-center">
-        <p className={`min-h-6 text-sm tracking-wide ${status === "error" ? "text-red-300" : "text-white/75"}`}>{message}</p>
+        <p className={`min-h-6 text-sm tracking-wide ${status === "error" ? "text-red-300" : status === "scanning" ? "text-colora-neon" : "text-white/75"}`}>{message}</p>
         {inactive && (
           <button type="button" onClick={start} className="mt-5 rounded-full border border-white/20 bg-white px-8 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#082756] shadow-2xl transition hover:scale-[1.02] hover:bg-white/90 focus:outline-none focus:ring-2 focus:ring-white/70">
             {status === "idle" ? "Open scanner" : "Try again"}
