@@ -110,10 +110,12 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecode
   const stop = useCallback(() => {
     if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
     animationRef.current = null;
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
     if (videoRef.current) videoRef.current.srcObject = null;
-    readerRef.current?.reset();
+    (readerRef.current as any)?.reset();
     decodingRef.current = false;
   }, []);
 
