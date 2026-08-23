@@ -1,3 +1,5 @@
+"use client";
+
 import { ColoraScanner } from "@/components/camera/ColoraScanner";
 
 const aesKeyBase64Url = process.env.NEXT_PUBLIC_COLORA_AES_KEY ?? "";

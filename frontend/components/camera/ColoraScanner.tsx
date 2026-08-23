@@ -90,23 +90,6 @@ function concatenate(first: Uint8Array, second: Uint8Array): Uint8Array {
   return result;
 }
 
-async function logSuccessfulScan(rawToken: string): Promise<void> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawToken));
-  const tokenHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  const deviceInfo = {
-    userAgent: navigator.userAgent,
-    platform: navigator.platform,
-    language: navigator.language,
-    screen: `${window.screen.width}x${window.screen.height}`,
-  };
-  await fetch("/api/qr/log-scan", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token_hash: tokenHash, device_info: deviceInfo, status: "success" }),
-    keepalive: true,
-  });
-}
-
 export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecoded, autoRedirect = true }: ColoraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -196,8 +179,6 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecode
           const rawToken = result.getText();
           const url = await openToken(rawToken, aesKeyBase64Url, publicKeyJwk, keyRing);
           if (!mountedRef.current) return;
-          // Telemetry must never delay or prevent the authenticated customer journey.
-          void logSuccessfulScan(rawToken).catch(() => undefined);
           setStatus("success");
           setMessage("Authentic COLORA piece");
           stop();
