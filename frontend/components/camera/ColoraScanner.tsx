@@ -63,16 +63,19 @@ async function openToken(
 
   const keyBytes = decodeBase64Url(selectedKey.aesKeyBase64Url);
   if (keyBytes.byteLength !== 32) throw new Error("Scanner configuration is invalid");
-  const decryptionKey = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
+  const decryptionKey = await crypto.subtle.importKey("raw", keyBytes as BufferSource, { name: "AES-GCM" }, false, ["decrypt"]);
+  const iv = signedPayload.slice(KEY_ID_SIZE + TIMESTAMP_SIZE, KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE);
+  const additionalData = concatenate(new TextEncoder().encode(PREFIX), signedPayload.slice(0, KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE));
+  const ciphertext = signedPayload.slice(KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE);
   const plaintext = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv: signedPayload.slice(KEY_ID_SIZE + TIMESTAMP_SIZE, KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE),
-      additionalData: concatenate(new TextEncoder().encode(PREFIX), signedPayload.slice(0, KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE)),
+      iv: iv as BufferSource,
+      additionalData: additionalData as BufferSource,
       tagLength: 128,
     },
     decryptionKey,
-    signedPayload.slice(KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE),
+    ciphertext as BufferSource,
   );
   const url = new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
   const parsed = new URL(url);
