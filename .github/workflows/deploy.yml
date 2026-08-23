@@ -27,11 +27,11 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        working-directory: frontend
-        run: npm install
+        working-directory: ./frontend
+        run: npm install --legacy-peer-deps
 
       - name: Build static site
-        working-directory: frontend
+        working-directory: ./frontend
         run: npm run build
 
       - name: Upload GitHub Pages artifact
