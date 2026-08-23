@@ -13,6 +13,8 @@ import argparse
 import base64
 import json
 import os
+import struct
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -26,10 +28,13 @@ from qrcode.image.styles.colormasks import SolidFillColorMask
 from qrcode.image.styles.moduledrawers.pil import RoundedModuleDrawer
 from qrcode.image.styledpil import StyledPilImage
 
-PREFIX = "colora-secure://v1."
-VERSION = b"\x01"
-NONCE_SIZE = 12
+PREFIX = "https://colora.vn/secure#token="
+KEY_ID_SIZE = 4
+TIMESTAMP_SIZE = 8
+NONCE_SIZE = 16
+GCM_TAG_SIZE = 16
 RAW_SIGNATURE_SIZE = 64
+DEFAULT_KEY_ID = 1
 DEFAULT_NAVY = (8, 39, 86)
 LOGO_SIDE_RATIO = 0.20
 
@@ -69,10 +74,13 @@ def _exclusive_write(path: Path, data: bytes) -> None:
         output.write(data)
 
 
-def scanner_configuration(aes_key: bytes, private_key: ec.EllipticCurvePrivateKey) -> dict[str, object]:
+def scanner_configuration(
+    aes_key: bytes, private_key: ec.EllipticCurvePrivateKey, key_id: int = DEFAULT_KEY_ID
+) -> dict[str, object]:
     """Return the values consumed by ``ColoraScanner`` (treat the AES value as secret)."""
     numbers = private_key.public_key().public_numbers()
     return {
+        "keyId": key_id,
         "aesKeyBase64Url": _b64url(aes_key),
         "publicKeyJwk": {
             "kty": "EC", "crv": "P-256", "x": _b64url(numbers.x.to_bytes(32, "big")),
@@ -81,18 +89,46 @@ def scanner_configuration(aes_key: bytes, private_key: ec.EllipticCurvePrivateKe
     }
 
 
-def secure_url(url: str, aes_key: bytes, private_key: ec.EllipticCurvePrivateKey) -> str:
-    """Encrypt and sign an HTTP(S) URL and return its COLORA URI."""
+def secure_url(
+    url: str,
+    aes_key: bytes,
+    private_key: ec.EllipticCurvePrivateKey,
+    key_id: int = DEFAULT_KEY_ID,
+    timestamp: int | None = None,
+    access_context: dict[str, object] | None = None,
+) -> str:
+    """Encrypt and sign a deep link in the documented COLORA binary envelope.
+
+    The token is ``key_id(4) || timestamp(8) || nonce(16) || ciphertext ||
+    tag(16) || ECDSA-P256-signature(64)``. Integers use network byte order.
+    """
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
         raise ValueError("URL must be an absolute HTTP(S) URL without embedded credentials")
+    if not 0 <= key_id <= 0xFFFFFFFF:
+        raise ValueError("Key ID must fit in an unsigned 4-byte integer")
+    issued_at = int(time.time()) if timestamp is None else timestamp
+    if not 0 <= issued_at <= 0xFFFFFFFFFFFFFFFF:
+        raise ValueError("Timestamp must fit in an unsigned 8-byte integer")
+
     nonce = os.urandom(NONCE_SIZE)
-    encrypted = AESGCM(aes_key).encrypt(nonce, url.encode("utf-8"), PREFIX.encode("ascii"))
-    authenticated_payload = VERSION + nonce + encrypted
+    header = struct.pack(">IQ", key_id, issued_at) + nonce
+    deep_link = json.dumps(
+        {"url": url, "context": access_context or {}},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    # Binding the clear routing/header fields into GCM also prevents a validly
+    # signed envelope from being replayed under a different protocol context.
+    encrypted_with_tag = AESGCM(aes_key).encrypt(
+        nonce, deep_link, PREFIX.encode("ascii") + header
+    )
+    ciphertext, tag = encrypted_with_tag[:-GCM_TAG_SIZE], encrypted_with_tag[-GCM_TAG_SIZE:]
+    authenticated_payload = header + ciphertext + tag
     der_signature = private_key.sign(authenticated_payload, ec.ECDSA(hashes.SHA256()))
     r, s = decode_dss_signature(der_signature)
     raw_signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
-    return PREFIX + base64.b85encode(authenticated_payload + raw_signature).decode("ascii")
+    return PREFIX + _b64url(authenticated_payload + raw_signature)
 
 
 def _logo_icon(logo_path: str | Path) -> tuple[Image.Image, tuple[int, int, int]]:
@@ -170,10 +206,11 @@ def url_to_qr(
     output: str | Path,
     key_directory: str | Path = "colora_keys",
     logo_path: str | Path | None = None,
+    key_id: int = DEFAULT_KEY_ID,
 ) -> str:
-    """Create a level-H QR PNG and return the encoded proprietary URI."""
+    """Create a level-H QR PNG and return the public fallback HTTPS URL."""
     aes_key, private_key = generate_keys(key_directory)
-    uri = secure_url(url, aes_key, private_key)
+    uri = secure_url(url, aes_key, private_key, key_id=key_id)
     qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=4)
     qr.add_data(uri)
     qr.make(fit=True)
@@ -198,13 +235,14 @@ def main() -> None:
     parser.add_argument("url", help="absolute HTTP(S) destination")
     parser.add_argument("-o", "--output", default="colora-secure-qr.png")
     parser.add_argument("--key-directory", default="colora_keys")
+    parser.add_argument("--key-id", type=int, default=DEFAULT_KEY_ID, help="unsigned 4-byte rotation key ID")
     parser.add_argument("--logo", type=Path, help='optional path to the "COLORA-16.png" logo')
     parser.add_argument("--print-scanner-config", action="store_true", help="print scanner key props (sensitive)")
     args = parser.parse_args()
-    uri = url_to_qr(args.url, args.output, args.key_directory, args.logo)
+    uri = url_to_qr(args.url, args.output, args.key_directory, args.logo, args.key_id)
     print(f"Created {args.output}\n{uri}")
     if args.print_scanner_config:
-        print(json.dumps(scanner_configuration(*generate_keys(args.key_directory)), indent=2))
+        print(json.dumps(scanner_configuration(*generate_keys(args.key_directory), args.key_id), indent=2))
 
 
 if __name__ == "__main__":

@@ -3,71 +3,87 @@
 import { BrowserQRCodeReader } from "@zxing/browser";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const PREFIX = "colora-secure://v1.";
-const BASE85_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~";
+const PREFIX = "https://colora.vn/secure#token=";
+const KEY_ID_SIZE = 4;
+const TIMESTAMP_SIZE = 8;
+const NONCE_SIZE = 16;
+const TAG_SIZE = 16;
+const SIGNATURE_SIZE = 64;
+const TOKEN_FIXED_SIZE = KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE + TAG_SIZE + SIGNATURE_SIZE;
+const TOKEN_TTL_SECONDS = 24 * 60 * 60;
+const MAX_CLOCK_SKEW_SECONDS = 5 * 60;
 const DECODE_INTERVAL_MS = 150; // 6.67 attempts/second: fast enough to feel instant without cooking the device.
 
 export interface ColoraScannerProps {
   aesKeyBase64Url: string;
   publicKeyJwk: JsonWebKey;
+  keyRing?: Record<string, ColoraScannerKey>;
   onDecoded?: (url: string) => void;
   autoRedirect?: boolean;
 }
 
-type ScannerStatus = "idle" | "requesting" | "scanning" | "verifying" | "success" | "error";
-
-function decodeBase85(value: string): Uint8Array {
-  if (!value || value.length % 5 === 1) throw new Error("Malformed Base85 payload");
-  const output: number[] = [];
-  for (let offset = 0; offset < value.length; offset += 5) {
-    const chunk = value.slice(offset, offset + 5);
-    let accumulator = 0;
-    for (const character of chunk.padEnd(5, "~")) {
-      const digit = BASE85_ALPHABET.indexOf(character);
-      if (digit < 0) throw new Error("Malformed Base85 payload");
-      accumulator = accumulator * 85 + digit;
-      if (accumulator > 0xffffffff) throw new Error("Malformed Base85 payload");
-    }
-    const bytes = [(accumulator >>> 24) & 255, (accumulator >>> 16) & 255, (accumulator >>> 8) & 255, accumulator & 255];
-    output.push(...bytes.slice(0, chunk.length - 1));
-  }
-  return new Uint8Array(output);
+export interface ColoraScannerKey {
+  aesKeyBase64Url: string;
+  publicKeyJwk: JsonWebKey;
 }
 
+type ScannerStatus = "idle" | "requesting" | "scanning" | "verifying" | "success" | "error";
+
 function decodeBase64Url(value: string): Uint8Array {
+  if (!value || !/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) throw new Error("Malformed Base64URL payload");
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
   return Uint8Array.from(atob(normalized), (character) => character.charCodeAt(0));
 }
 
-async function openToken(rawValue: string, aesKeyBase64Url: string, publicKeyJwk: JsonWebKey): Promise<string> {
+async function openToken(
+  rawValue: string,
+  aesKeyBase64Url: string,
+  publicKeyJwk: JsonWebKey,
+  keyRing?: Record<string, ColoraScannerKey>,
+): Promise<string> {
   if (!rawValue.startsWith(PREFIX)) throw new Error("This is not a COLORA secure code");
-  const token = decodeBase85(rawValue.slice(PREFIX.length));
-  if (token.length < 1 + 12 + 16 + 64 || token[0] !== 1) throw new Error("Unsupported or incomplete COLORA code");
+  const token = decodeBase64Url(rawValue.slice(PREFIX.length));
+  if (token.length <= TOKEN_FIXED_SIZE) throw new Error("Incomplete COLORA code");
 
-  const signedPayload = token.slice(0, -64);
-  const signature = token.slice(-64);
+  const signedPayload = token.slice(0, -SIGNATURE_SIZE);
+  const signature = token.slice(-SIGNATURE_SIZE);
+  const view = new DataView(signedPayload.buffer, signedPayload.byteOffset, signedPayload.byteLength);
+  const keyId = view.getUint32(0, false);
+  const selectedKey = keyRing ? keyRing[String(keyId)] : { aesKeyBase64Url, publicKeyJwk };
+  if (!selectedKey) throw new Error(`Unknown COLORA key ID: ${keyId}`);
   const verificationKey = await crypto.subtle.importKey(
-    "jwk", publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
+    "jwk", selectedKey.publicKeyJwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"],
   );
   const authentic = await crypto.subtle.verify(
     { name: "ECDSA", hash: "SHA-256" }, verificationKey, signature, signedPayload,
   );
   if (!authentic) throw new Error("Counterfeit code: signature verification failed");
 
-  const keyBytes = decodeBase64Url(aesKeyBase64Url);
+  const issuedAt = Number(view.getBigUint64(KEY_ID_SIZE, false));
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isSafeInteger(issuedAt)) throw new Error("Invalid COLORA timestamp");
+  if (issuedAt > now + MAX_CLOCK_SKEW_SECONDS) throw new Error("COLORA code is not valid yet");
+  if (now - issuedAt > TOKEN_TTL_SECONDS) throw new Error("COLORA code has expired");
+
+  const keyBytes = decodeBase64Url(selectedKey.aesKeyBase64Url);
   if (keyBytes.byteLength !== 32) throw new Error("Scanner configuration is invalid");
   const decryptionKey = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
   const plaintext = await crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv: signedPayload.slice(1, 13),
-      additionalData: new TextEncoder().encode(PREFIX),
+      iv: signedPayload.slice(KEY_ID_SIZE + TIMESTAMP_SIZE, KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE),
+      additionalData: concatenate(new TextEncoder().encode(PREFIX), signedPayload.slice(0, KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE)),
       tagLength: 128,
     },
     decryptionKey,
-    signedPayload.slice(13),
+    signedPayload.slice(KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE),
   );
-  const url = new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
+  const decoded = new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
+  const payload = JSON.parse(decoded) as { url?: unknown; context?: unknown };
+  if (typeof payload.url !== "string" || typeof payload.context !== "object" || payload.context === null) {
+    throw new Error("Invalid COLORA deep-link payload");
+  }
+  const url = payload.url;
   const parsed = new URL(url);
   if (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password) {
     throw new Error("Decrypted destination is unsafe");
@@ -75,7 +91,14 @@ async function openToken(rawValue: string, aesKeyBase64Url: string, publicKeyJwk
   return parsed.href;
 }
 
-export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, onDecoded, autoRedirect = true }: ColoraScannerProps) {
+function concatenate(first: Uint8Array, second: Uint8Array): Uint8Array {
+  const result = new Uint8Array(first.length + second.length);
+  result.set(first);
+  result.set(second, first.length);
+  return result;
+}
+
+export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecoded, autoRedirect = true }: ColoraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>();
@@ -161,7 +184,7 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, onDecoded, autoRe
           handledRef.current = true;
           setStatus("verifying");
           setMessage("Authenticating and decrypting…");
-          const url = await openToken(result.getText(), aesKeyBase64Url, publicKeyJwk);
+          const url = await openToken(result.getText(), aesKeyBase64Url, publicKeyJwk, keyRing);
           if (!mountedRef.current) return;
           setStatus("success");
           setMessage("Authentic COLORA piece");
@@ -188,7 +211,7 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, onDecoded, autoRe
       setStatus("error");
       setMessage(denied ? "Camera access was denied" : unavailable ? "A rear camera is required" : error instanceof Error ? error.message : "Camera access failed");
     }
-  }, [aesKeyBase64Url, autoRedirect, onDecoded, publicKeyJwk, stop]);
+  }, [aesKeyBase64Url, autoRedirect, keyRing, onDecoded, publicKeyJwk, stop]);
 
   useEffect(() => {
     mountedRef.current = true;
