@@ -95,7 +95,6 @@ def secure_url(
     private_key: ec.EllipticCurvePrivateKey,
     key_id: int = DEFAULT_KEY_ID,
     timestamp: int | None = None,
-    access_context: dict[str, object] | None = None,
 ) -> str:
     """Encrypt and sign a deep link in the documented COLORA binary envelope.
 
@@ -113,11 +112,9 @@ def secure_url(
 
     nonce = os.urandom(NONCE_SIZE)
     header = struct.pack(">IQ", key_id, issued_at) + nonce
-    deep_link = json.dumps(
-        {"url": url, "context": access_context or {}},
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    # Layer 8 is only the canonical deep-link URL. Keeping the plaintext format
+    # this narrow makes the binary protocol deterministic across implementations.
+    deep_link = parsed.geturl().encode("utf-8")
     # Binding the clear routing/header fields into GCM also prevents a validly
     # signed envelope from being replayed under a different protocol context.
     encrypted_with_tag = AESGCM(aes_key).encrypt(
