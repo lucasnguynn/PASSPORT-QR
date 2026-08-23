@@ -10,8 +10,6 @@ const NONCE_SIZE = 16;
 const TAG_SIZE = 16;
 const SIGNATURE_SIZE = 64;
 const TOKEN_FIXED_SIZE = KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE + TAG_SIZE + SIGNATURE_SIZE;
-const TOKEN_TTL_SECONDS = 24 * 60 * 60;
-const MAX_CLOCK_SKEW_SECONDS = 5 * 60;
 const DECODE_INTERVAL_MS = 150; // 6.67 attempts/second: fast enough to feel instant without cooking the device.
 
 export interface ColoraScannerProps {
@@ -59,11 +57,9 @@ async function openToken(
   );
   if (!authentic) throw new Error("Counterfeit code: signature verification failed");
 
-  const issuedAt = Number(view.getBigUint64(KEY_ID_SIZE, false));
-  const now = Math.floor(Date.now() / 1000);
-  if (!Number.isSafeInteger(issuedAt)) throw new Error("Invalid COLORA timestamp");
-  if (issuedAt > now + MAX_CLOCK_SKEW_SECONDS) throw new Error("COLORA code is not valid yet");
-  if (now - issuedAt > TOKEN_TTL_SECONDS) throw new Error("COLORA code has expired");
+  // Layer 6 is immutable issuance metadata. It is deliberately never compared
+  // with the current time: COLORA tokens are permanent and do not expire.
+  const issuedAt = view.getBigUint64(KEY_ID_SIZE, false);
 
   const keyBytes = decodeBase64Url(selectedKey.aesKeyBase64Url);
   if (keyBytes.byteLength !== 32) throw new Error("Scanner configuration is invalid");
@@ -78,16 +74,12 @@ async function openToken(
     decryptionKey,
     signedPayload.slice(KEY_ID_SIZE + TIMESTAMP_SIZE + NONCE_SIZE),
   );
-  const decoded = new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
-  const payload = JSON.parse(decoded) as { url?: unknown; context?: unknown };
-  if (typeof payload.url !== "string" || typeof payload.context !== "object" || payload.context === null) {
-    throw new Error("Invalid COLORA deep-link payload");
-  }
-  const url = payload.url;
+  const url = new TextDecoder("utf-8", { fatal: true }).decode(plaintext);
   const parsed = new URL(url);
   if (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password) {
     throw new Error("Decrypted destination is unsafe");
   }
+  console.info("COLORA secure QR opened", { keyId, issuedAt: issuedAt.toString() });
   return parsed.href;
 }
 
@@ -180,7 +172,7 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecode
           context.drawImage(video, sourceX, sourceY, sourceSide, sourceSide, 0, 0, decodeSide, decodeSide);
 
           const result = reader.decodeFromCanvas(canvas);
-          if (!result || handledRef.current) return;
+          if (!result || handledRef.current || !result.getText().startsWith(PREFIX)) return;
           handledRef.current = true;
           setStatus("verifying");
           setMessage("Authenticating and decrypting…");
