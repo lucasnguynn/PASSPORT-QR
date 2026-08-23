@@ -96,10 +96,10 @@ function concatenate(first: Uint8Array, second: Uint8Array): Uint8Array {
 export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecoded, autoRedirect = true }: ColoraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>();
-  const streamRef = useRef<MediaStream>();
-  const animationRef = useRef<number>();
-  const readerRef = useRef<BrowserQRCodeReader>();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream>(null);
+  const animationRef = useRef<number>(null);
+  const readerRef = useRef<BrowserQRCodeReader>(null);
   const handledRef = useRef(false);
   const decodingRef = useRef(false);
   const lastDecodeRef = useRef(0);
@@ -108,10 +108,10 @@ export function ColoraScanner({ aesKeyBase64Url, publicKeyJwk, keyRing, onDecode
   const [message, setMessage] = useState("Ready to discover your COLORA piece");
 
   const stop = useCallback(() => {
-    if (animationRef.current !== undefined) cancelAnimationFrame(animationRef.current);
-    animationRef.current = undefined;
+    if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
+    animationRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = undefined;
+    streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     readerRef.current?.reset();
     decodingRef.current = false;
