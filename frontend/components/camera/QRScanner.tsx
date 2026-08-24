@@ -24,7 +24,7 @@ export function QRScanner({ onSuccess, onError }: QRScannerProps) {
     const reader = new BrowserQRCodeReader(); readerRef.current = reader;
     try {
       setState("scanning");
-      await reader.decodeFromConstraints({ video: { facingMode: "environment" } }, videoRef.current ?? undefined, async (result) => {
+      await reader.decodeFromConstraints({ video: { facingMode: "environment" } }, videoRef.current!, async (result) => {
         if (!result || handledRef.current) return;
         handledRef.current = true; reader.stopContinuousDecode();
         const uri = result.getText();
