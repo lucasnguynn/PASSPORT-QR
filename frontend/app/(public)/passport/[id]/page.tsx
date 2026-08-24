@@ -2,8 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PassportCard } from "@/components/passport/PassportCard";
 import type { PassportData, Story } from "@/lib/api";
+export function generateStaticParams() {
+ return [];
+}
 const serverApi = process.env.NEXT_PUBLIC_API_URL || process.env.INTERNAL_API_URL || "http://backend:8000/api";
-async function load<T>(path: string): Promise<T | null> { const response = await fetch(`${serverApi}${path}`, { cache: "no-store" }); if (response.status === 404) return null; if (!response.ok) throw new Error(`DPP API returned ${response.status}`); return response.json() as Promise<T>; }
+async function load<T>(path: string): Promise<T | null> { const response = await fetch(`${serverApi}${path}`); if (response.status === 404) return null; if (!response.ok) throw new Error(`DPP API returned ${response.status}`); return response.json() as Promise<T>; }
 export default async function PassportPage({ params }: { params: Promise<{ id: string }> }) {
  const { id } = await params; const passport = await load<PassportData>(`/passport/${encodeURIComponent(id)}`); if (!passport) notFound();
  const stories = await load<{items?: Story[]} | Story[]>(`/social/stories/by-product/${encodeURIComponent(id)}`).catch(() => [] as Story[]);
